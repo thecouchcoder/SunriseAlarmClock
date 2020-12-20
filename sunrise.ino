@@ -25,11 +25,15 @@ ESP8266WebServer server(80);
 uint8_t alarmHour = 25;
 uint8_t alarmMinute;
 uint8_t sunriseLengthInMinutes = 15;
-
+uint8_t cycle1Brightness = 30;
+uint8_t cycle2Brightness = 50;
+uint8_t cycle3Brightness = 70;
 
 uint8_t r;
 uint8_t g;
 uint8_t b;
+uint8_t cycle;
+boolean off = true;
 
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
@@ -50,9 +54,9 @@ void handleNotFound() {
 }
 
 void initStrip(){
-  strip.begin();          
-  strip.show();          
-  strip.setBrightness(1);  
+  strip.begin();  
+  strip.setBrightness(cycle1Brightness); 
+  strip.show();   
 }
 
 void initWifi(){
@@ -113,6 +117,11 @@ void initEndpoints(){
 
   server.on("/reset", HTTP_POST, [](){
     setAlarm("25:00");
+    r=0;
+    g=0;
+    b=0;
+    cycle=0;
+    off=true;
     server.send(200, "text/plain", "Successfully reset");
   });
 
@@ -142,6 +151,7 @@ String getValue(String data, char separator, int index)
 
 
 void beginSunrise(uint8_t nowMinute){
+  off = false;
   if (isFirstCycle(nowMinute)){
     firstCycle(nowMinute);
   }
@@ -150,6 +160,17 @@ void beginSunrise(uint8_t nowMinute){
   }
   else if (isThirdCycle(nowMinute)){
     thirdCycle(nowMinute);  
+  }
+  else{
+    off = true;
+    cycle = 0;
+    r = 0;
+    g = 0;
+    b = 0;
+    for (int i=0; i < strip.numPixels(); i++) {
+      strip.setPixelColor(i , strip.Color(r, g, b));
+    }
+    strip.show();
   }
 }
 
@@ -168,7 +189,7 @@ bool isSecondCycle(uint8_t nowMinute){
 bool isThirdCycle(uint8_t nowMinute){
   // Example
   // [40-45)
-  return nowMinute >= nowMinute + (getCycleLength()*2) && nowMinute < alarmMinute + sunriseLengthInMinutes;
+  return nowMinute >= alarmMinute + (getCycleLength()*2) && nowMinute < alarmMinute + sunriseLengthInMinutes;
 }
 
 uint8_t getCycleLength(){
@@ -186,39 +207,51 @@ uint8_t getElapsedMinuteInCycle(uint8_t nowMinute){
 }
 
 void firstCycle(uint8_t nowMinute){
+  cycle = 1;
   // deep blues and purples -> blue to purple by increasing red
   uint8_t rStart = 55;
   uint8_t gStart = 63;
   uint8_t bStart = 135;
   
-  uint8_t rStop = 85;
-  uint8_t gStop = 56;
+  uint8_t rStop = 120;
+  uint8_t gStop = 63;
   uint8_t bStop = 135;
 
+  if(strip.getBrightness() != cycle1Brightness){
+    strip.setBrightness(cycle1Brightness);   
+  }
   setColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute);
 }
 void secondCycle(uint8_t nowMinute){
+  cycle = 2;
   // reds and oranges -> purple to red by decreasing blue; red to orange by increasing red and green
-  uint8_t rStart = 85;
-  uint8_t gStart = 56;
-  uint8_t bStart = 135;
+  uint8_t rStart = 120;
+  uint8_t gStart = 63;
+  uint8_t bStart = 100;
   
-  uint8_t rStop = 229;
-  uint8_t gStop = 108;
-  uint8_t bStop = 56;
+  uint8_t rStop = 244;
+  uint8_t gStop = 77;
+  uint8_t bStop = 31;
 
+  if(strip.getBrightness() != cycle2Brightness){
+    strip.setBrightness(cycle2Brightness);   
+  }
   setColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute);
 }
 void thirdCycle(uint8_t nowMinute){
+  cycle = 3;
   // yellows and white -> orange to yellow by increasing green; yellow to white by increasing all
   uint8_t rStart = 229;
-  uint8_t gStart = 108;
-  uint8_t bStart = 56;
+  uint8_t gStart = 150;
+  uint8_t bStart = 31;
   
-  uint8_t rStop = 250;
+  uint8_t rStop = 255;
   uint8_t gStop = 255;
-  uint8_t bStop = 90;
+  uint8_t bStop = 0;
 
+  if(strip.getBrightness() != cycle3Brightness){
+    strip.setBrightness(cycle3Brightness);   
+  }
   setColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute);
 }
 
@@ -226,26 +259,18 @@ void setColor(uint8_t rStart, uint8_t gStart, uint8_t bStart, uint8_t rStop, uin
   uint32_t color = getColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute);
   for (int i=0; i < strip.numPixels(); i++) {
      strip.setPixelColor(i , color);
-     strip.show();
   }
+   strip.show();
 }
 
 uint32_t getColor(uint8_t rStart, uint8_t gStart, uint8_t bStart, uint8_t rStop, uint8_t gStop, uint8_t bStop, uint8_t nowMinute){
   uint8_t cycleLength = getCycleLength();
   uint8_t rCurr = rStart + (getElapsedMinuteInCycle(nowMinute) * (rStop-rStart)/cycleLength);
-  rCurr = rCurr >= 0 ? rCurr : 0;
+  rCurr = rCurr > 0 ? rCurr : 0;
   uint8_t gCurr = gStart + (getElapsedMinuteInCycle(nowMinute) * (gStop-gStart)/cycleLength);
-  gCurr = gCurr >= 0 ? gCurr : 0;
+  gCurr = gCurr > 0 ? gCurr : 0;
   uint8_t bCurr = bStart + (getElapsedMinuteInCycle(nowMinute) * (bStop-bStart)/cycleLength);
-  bCurr = bCurr >= 0 ? bCurr : 0;
-//  Serial.print("Minute: ");
-//  Serial.print(getElapsedMinuteInCycle(nowMinute));
-//  Serial.print(" R: ");
-//  Serial.print(rCurr);
-//  Serial.print(" G: ");
-//  Serial.print(gCurr);
-//  Serial.print(" B: ");
-//  Serial.println(bCurr);
+  bCurr = bCurr > 0 ? bCurr : 0;
   r = rCurr;
   g = gCurr;
   b = bCurr;
@@ -271,7 +296,7 @@ void loop(void) {
   uint8_t nowMinute = now.Minute();
   if (alarmHour != 25 && 
       now.Hour() == alarmHour && 
-      (nowMinute >= alarmMinute && nowMinute < alarmMinute + sunriseLengthInMinutes)){
+      (nowMinute >= alarmMinute && nowMinute < alarmMinute + sunriseLengthInMinutes + 1)){
     beginSunrise(nowMinute);
   }
 }
@@ -349,7 +374,12 @@ String buildTimePage(){
     <h1>The Current Time Is:</h1>\
     <h1>";
     html += strTime;
-    html += "</h1> <h3> Color: (";
+    if (off){
+      html += "<h3>Off</h3>";
+    }
+    html += "</h1> <h3> Cycle ";
+    html += cycle;
+    html+= ": (";
     html += r;
     html += ",";
     html += g;
