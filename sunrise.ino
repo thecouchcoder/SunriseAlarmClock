@@ -23,6 +23,12 @@ ESP8266WebServer server(80);
 // begin with invalid hour
 uint8_t alarmHour = 25;
 uint8_t alarmMinute;
+uint8_t sunriseLengthInMinutes = 15;
+
+
+uint8_t r;
+uint8_t g;
+uint8_t b;
 
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
@@ -134,12 +140,115 @@ String getValue(String data, char separator, int index)
 }
 
 
-void beginSunrise(){
-  Serial.println("Starting Sunrise");
-    for (int i=0; i < strip.numPixels(); i++) {
-       strip.setPixelColor(i , strip.Color(255, 0, 0));
-       strip.show();
-      }
+void beginSunrise(uint8_t nowMinute){
+  if (isFirstCycle(nowMinute)){
+    firstCycle(nowMinute);
+  }
+  else if (isSecondCycle(nowMinute)){
+    secondCycle(nowMinute);  
+  }
+  else if (isThirdCycle(nowMinute)){
+    thirdCycle(nowMinute);  
+  }
+}
+
+bool isFirstCycle(uint8_t nowMinute){
+  // Example
+  // [30-35)
+  return nowMinute >= alarmMinute && nowMinute < alarmMinute + getCycleLength();
+}
+
+bool isSecondCycle(uint8_t nowMinute){
+  // Example
+  // [35-40)
+  return nowMinute >= alarmMinute + getCycleLength() && nowMinute < alarmMinute + (getCycleLength()*2);
+}
+
+bool isThirdCycle(uint8_t nowMinute){
+  // Example
+  // [40-45)
+  return nowMinute >= nowMinute + (getCycleLength()*2) && nowMinute < alarmMinute + sunriseLengthInMinutes;
+}
+
+uint8_t getCycleLength(){
+  return sunriseLengthInMinutes/3;
+}
+
+uint8_t getElapsedMinuteInCycle(uint8_t nowMinute){
+  //hacky method
+  uint8_t elapsedTime = nowMinute-alarmMinute+1;
+  uint8_t cycleLength = getCycleLength();
+  while (elapsedTime > cycleLength){
+    elapsedTime -= cycleLength;
+  }
+  return elapsedTime;
+}
+
+void firstCycle(uint8_t nowMinute){
+  // deep blues and purples -> blue to purple by increasing red
+  uint8_t rStart = 55;
+  uint8_t gStart = 63;
+  uint8_t bStart = 135;
+  
+  uint8_t rStop = 85;
+  uint8_t gStop = 56;
+  uint8_t bStop = 135;
+
+  setColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute);
+}
+void secondCycle(uint8_t nowMinute){
+  // reds and oranges -> purple to red by decreasing blue; red to orange by increasing red and green
+  uint8_t rStart = 85;
+  uint8_t gStart = 56;
+  uint8_t bStart = 135;
+  
+  uint8_t rStop = 229;
+  uint8_t gStop = 108;
+  uint8_t bStop = 56;
+
+  setColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute);
+}
+void thirdCycle(uint8_t nowMinute){
+  // yellows and white -> orange to yellow by increasing green; yellow to white by increasing all
+  uint8_t rStart = 229;
+  uint8_t gStart = 108;
+  uint8_t bStart = 56;
+  
+  uint8_t rStop = 250;
+  uint8_t gStop = 255;
+  uint8_t bStop = 90;
+
+  setColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute);
+}
+
+void setColor(uint8_t rStart, uint8_t gStart, uint8_t bStart, uint8_t rStop, uint8_t gStop, uint8_t bStop, uint8_t nowMinute){
+  uint32_t color = getColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute);
+  for (int i=0; i < strip.numPixels(); i++) {
+     strip.setPixelColor(i , color);
+     strip.show();
+  }
+}
+
+uint32_t getColor(uint8_t rStart, uint8_t gStart, uint8_t bStart, uint8_t rStop, uint8_t gStop, uint8_t bStop, uint8_t nowMinute){
+  uint8_t cycleLength = getCycleLength();
+  uint8_t rCurr = rStart + (getElapsedMinuteInCycle(nowMinute) * (rStop-rStart)/cycleLength);
+  rCurr = rCurr >= 0 ? rCurr : 0;
+  uint8_t gCurr = gStart + (getElapsedMinuteInCycle(nowMinute) * (gStop-gStart)/cycleLength);
+  gCurr = gCurr >= 0 ? gCurr : 0;
+  uint8_t bCurr = bStart + (getElapsedMinuteInCycle(nowMinute) * (bStop-bStart)/cycleLength);
+  bCurr = bCurr >= 0 ? bCurr : 0;
+//  Serial.print("Minute: ");
+//  Serial.print(getElapsedMinuteInCycle(nowMinute));
+//  Serial.print(" R: ");
+//  Serial.print(rCurr);
+//  Serial.print(" G: ");
+//  Serial.print(gCurr);
+//  Serial.print(" B: ");
+//  Serial.println(bCurr);
+  r = rCurr;
+  g = gCurr;
+  b = bCurr;
+  return strip.Color(rCurr, gCurr, bCurr);
 }
 
 void setup(void) {
@@ -156,11 +265,11 @@ void setup(void) {
 void loop(void) {
   server.handleClient();
   RtcDateTime now = Rtc.GetDateTime();
-  Serial.print(alarmHour);
-  Serial.print(":");
-  Serial.println(alarmMinute);
-  if (alarmHour != 25 && now.Hour() == alarmHour && now.Minute() == alarmMinute){ 
-    beginSunrise();
+  uint8_t nowMinute = now.Minute();
+  if (alarmHour != 25 && 
+      now.Hour() == alarmHour && 
+      (nowMinute >= alarmMinute && nowMinute < alarmMinute + sunriseLengthInMinutes)){
+    beginSunrise(nowMinute);
   }
 }
 
@@ -202,9 +311,16 @@ String buildTimePage(){
     <h1>The Current Time Is:</h1>\
     <h1>";
     html += strTime;
-    html += "</h1>\
-    </body>\
-  </html>";
+    html += "</h1> <h3> Color: (";
+    html += r;
+    html += ",";
+    html += g;
+    html += ",";
+    html += b;
+    html += ")";
+    html += "</h3>\
+      </body>\
+    </html>";
   return html;
 }
 
