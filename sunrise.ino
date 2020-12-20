@@ -4,6 +4,7 @@
 #include <Adafruit_NeoPixel.h>
 #include <Wire.h>
 #include <RtcDS3231.h>
+#include <ArduinoOTA.h>
 
 #ifndef STASSID
 #define STASSID "XYZ"
@@ -254,6 +255,7 @@ uint32_t getColor(uint8_t rStart, uint8_t gStart, uint8_t bStart, uint8_t rStop,
 void setup(void) {
   Serial.begin(115200);
   initWifi();
+  initOTA();
   initStrip();
   initRtc();
   initEndpoints();  
@@ -263,6 +265,7 @@ void setup(void) {
 }
 
 void loop(void) {
+  ArduinoOTA.handle();
   server.handleClient();
   RtcDateTime now = Rtc.GetDateTime();
   uint8_t nowMinute = now.Minute();
@@ -271,6 +274,41 @@ void loop(void) {
       (nowMinute >= alarmMinute && nowMinute < alarmMinute + sunriseLengthInMinutes)){
     beginSunrise(nowMinute);
   }
+}
+
+void initOTA(){
+  ArduinoOTA.setHostname("esp8266");
+  ArduinoOTA.setPasswordHash("feed5d47c860f422712ac902a89865db");
+
+  ArduinoOTA.onStart([]() {
+    String type;
+    if (ArduinoOTA.getCommand() == U_FLASH) {
+      type = "sketch";
+    } else { // U_FS
+      type = "filesystem";
+    }
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nEnd");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) {
+      Serial.println("Auth Failed");
+    } else if (error == OTA_BEGIN_ERROR) {
+      Serial.println("Begin Failed");
+    } else if (error == OTA_CONNECT_ERROR) {
+      Serial.println("Connect Failed");
+    } else if (error == OTA_RECEIVE_ERROR) {
+      Serial.println("Receive Failed");
+    } else if (error == OTA_END_ERROR) {
+      Serial.println("End Failed");
+    }
+  });
+  ArduinoOTA.begin();
 }
 
 String buildSetPage(){
