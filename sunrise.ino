@@ -5,6 +5,7 @@
 #include <Wire.h>
 #include <RtcDS3231.h>
 #include <ArduinoOTA.h>
+#include <EEPROM.h>
 
 #ifndef STASSID
 #define STASSID "XYZ"
@@ -14,6 +15,7 @@
 
 #define LED_PIN 13 // D7
 #define LED_COUNT 30
+#define EEPROM_SIZE 2
 
 const char* ssid = STASSID;
 const char* password = STAPSK;
@@ -37,6 +39,30 @@ boolean off = true;
 
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
+void setup(void) {
+  Serial.begin(115200);
+  initEEPROM();
+  initWifi();
+  initOTA();
+  initStrip();
+  initRtc();
+  initEndpoints();  
+
+  server.begin();
+  Serial.println("HTTP server started");
+}
+
+void loop(void) {
+  ArduinoOTA.handle();
+  server.handleClient();
+  RtcDateTime now = Rtc.GetDateTime();
+  uint8_t nowMinute = now.Minute();
+  if (alarmHour != 25 && 
+      now.Hour() == alarmHour && 
+      (nowMinute >= alarmMinute && nowMinute < alarmMinute + SUNRISE_LENGTH_IN_MINUTES + 1)){
+    beginSunrise(nowMinute);
+  }
+}
 
 void handleNotFound() {
   String message = "File Not Found\n\n";
@@ -53,6 +79,12 @@ void handleNotFound() {
   server.send(404, "text/plain", message);
 }
 
+void initEEPROM(){
+  EEPROM.begin(EEPROM_SIZE);
+  alarmHour = EEPROM.read(0);
+  alarmMinute = EEPROM.read(1);
+}
+ 
 void initStrip(){
   strip.begin();  
   strip.setBrightness(C1_BRIGHTNESS);
@@ -125,12 +157,50 @@ void initEndpoints(){
   server.onNotFound(handleNotFound);
 }
 
-void setAlarm(String time){
-  alarmHour = atoi(getValue(time, ':', 0).c_str()); 
-  alarmMinute = atoi(getValue(time, ':', 1).c_str());
+void initOTA(){
+  ArduinoOTA.setHostname("esp8266");
+  ArduinoOTA.setPasswordHash("feed5d47c860f422712ac902a89865db");
+
+  ArduinoOTA.onStart([]() {
+    String type;
+    if (ArduinoOTA.getCommand() == U_FLASH) {
+      type = "sketch";
+    } else { // U_FS
+      type = "filesystem";
+    }
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nEnd");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) {
+      Serial.println("Auth Failed");
+    } else if (error == OTA_BEGIN_ERROR) {
+      Serial.println("Begin Failed");
+    } else if (error == OTA_CONNECT_ERROR) {
+      Serial.println("Connect Failed");
+    } else if (error == OTA_RECEIVE_ERROR) {
+      Serial.println("Receive Failed");
+    } else if (error == OTA_END_ERROR) {
+      Serial.println("End Failed");
+    }
+  });
+  ArduinoOTA.begin();
 }
 
-String getValue(String data, char separator, int index)
+void setAlarm(String time){
+  alarmHour = atoi(getValueFromArg(time, ':', 0).c_str());
+  alarmMinute = atoi(getValueFromArg(time, ':', 1).c_str());
+  EEPROM.write(0, alarmHour); 
+  EEPROM.write(1, alarmMinute);
+  EEPROM.commit();
+}
+
+String getValueFromArg(String data, char separator, int index)
 {
     int found = 0;
     int strIndex[] = { 0, -1 };
@@ -257,65 +327,6 @@ uint32_t getColor(uint8_t rStart, uint8_t gStart, uint8_t bStart, uint8_t rStop,
   bCurr = bCurr > 0 ? bCurr : 0;
   setDebugValues(rCurr, gCurr, bCurr, cycleNumber, false);
   return strip.Color(rCurr, gCurr, bCurr);
-}
-
-void setup(void) {
-  Serial.begin(115200);
-  initWifi();
-  initOTA();
-  initStrip();
-  initRtc();
-  initEndpoints();  
-
-  server.begin();
-  Serial.println("HTTP server started");
-}
-
-void loop(void) {
-  ArduinoOTA.handle();
-  server.handleClient();
-  RtcDateTime now = Rtc.GetDateTime();
-  uint8_t nowMinute = now.Minute();
-  if (alarmHour != 25 && 
-      now.Hour() == alarmHour && 
-      (nowMinute >= alarmMinute && nowMinute < alarmMinute + SUNRISE_LENGTH_IN_MINUTES + 1)){
-    beginSunrise(nowMinute);
-  }
-}
-
-void initOTA(){
-  ArduinoOTA.setHostname("esp8266");
-  ArduinoOTA.setPasswordHash("feed5d47c860f422712ac902a89865db");
-
-  ArduinoOTA.onStart([]() {
-    String type;
-    if (ArduinoOTA.getCommand() == U_FLASH) {
-      type = "sketch";
-    } else { // U_FS
-      type = "filesystem";
-    }
-  });
-  ArduinoOTA.onEnd([]() {
-    Serial.println("\nEnd");
-  });
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-  });
-  ArduinoOTA.onError([](ota_error_t error) {
-    Serial.printf("Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR) {
-      Serial.println("Auth Failed");
-    } else if (error == OTA_BEGIN_ERROR) {
-      Serial.println("Begin Failed");
-    } else if (error == OTA_CONNECT_ERROR) {
-      Serial.println("Connect Failed");
-    } else if (error == OTA_RECEIVE_ERROR) {
-      Serial.println("Receive Failed");
-    } else if (error == OTA_END_ERROR) {
-      Serial.println("End Failed");
-    }
-  });
-  ArduinoOTA.begin();
 }
 
 void setDebugValues(uint8_t rVal, uint8_t gVal, uint8_t bVal, uint8_t cycleVal, bool offVal){
