@@ -17,9 +17,10 @@
 
 const char* ssid = STASSID;
 const char* password = STAPSK;
-const uint8_t C1_BRIGHTNESS = 30;
+const uint8_t C1_BRIGHTNESS = 20;
 const uint8_t C2_BRIGHTNESS = 50;
 const uint8_t C3_BRIGHTNESS = 70;
+const uint8_t SUNRISE_LENGTH_IN_MINUTES = 15;
 
 RtcDS3231<TwoWire> Rtc(Wire);
 ESP8266WebServer server(80);
@@ -27,7 +28,6 @@ ESP8266WebServer server(80);
 // begin with invalid hour
 uint8_t alarmHour = 25;
 uint8_t alarmMinute;
-uint8_t sunriseLengthInMinutes = 15;
 
 uint8_t r;
 uint8_t g;
@@ -118,11 +118,7 @@ void initEndpoints(){
 
   server.on("/reset", HTTP_POST, [](){
     setAlarm("25:00");
-    r=0;
-    g=0;
-    b=0;
-    cycle=0;
-    off=true;
+    setDebugValues(0,0,0,0,true);
     server.send(200, "text/plain", "Successfully reset");
   });
 
@@ -152,7 +148,6 @@ String getValue(String data, char separator, int index)
 
 
 void beginSunrise(uint8_t nowMinute){
-  off = false;
   if (isFirstCycle(nowMinute)){
     firstCycle(nowMinute);
   }
@@ -163,14 +158,7 @@ void beginSunrise(uint8_t nowMinute){
     thirdCycle(nowMinute);  
   }
   else{
-    off = true;
-    cycle = 0;
-    r = 0;
-    g = 0;
-    b = 0;
-//    for (int i=0; i < strip.numPixels(); i++) {
-//      strip.setPixelColor(i , strip.Color(r, g, b));
-//    }
+    setDebugValues(0,0,0,0,true);
     strip.clear();
     strip.show();
   }
@@ -191,21 +179,23 @@ bool isSecondCycle(uint8_t nowMinute){
 bool isThirdCycle(uint8_t nowMinute){
   // Example
   // [40-45)
-  return nowMinute >= alarmMinute + (getCycleLength()*2) && nowMinute < alarmMinute + sunriseLengthInMinutes;
+  return nowMinute >= alarmMinute + (getCycleLength()*2) && nowMinute < alarmMinute + SUNRISE_LENGTH_IN_MINUTES;
 }
 
 uint8_t getCycleLength(){
-  return sunriseLengthInMinutes/3;
+  return SUNRISE_LENGTH_IN_MINUTES/3;
 }
 
 uint8_t getElapsedMinuteInCycle(uint8_t nowMinute){
+  // Example: Alarm Time 1:59; Current Time 2:02
+  // 2 - 59 = - 57 (bad) -> 60+2 - 59 = 3
+  nowMinute = nowMinute < alarmMinute ? nowMinute + 60 : nowMinute;
   // Example: Alarm at 1:06; Current Time: 1:18
   // 18-6-(5*(3-1))-1 = 12-10-1 = 1
   return nowMinute - alarmMinute - (getCycleLength()*(cycle-1))-1;
 }
 
 void firstCycle(uint8_t nowMinute){
-  cycle = 1;
   // deep blues and purples -> blue to purple by increasing red
   uint8_t rStart = 50;
   uint8_t gStart = 50;
@@ -218,10 +208,9 @@ void firstCycle(uint8_t nowMinute){
   if(strip.getBrightness() != C1_BRIGHTNESS){
     strip.setBrightness(C1_BRIGHTNESS);   
   }
-  setColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute);
+  setColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute, 1);
 }
 void secondCycle(uint8_t nowMinute){
-  cycle = 2;
   // reds and oranges -> purple to red by decreasing blue; red to orange by increasing red and green
   uint8_t rStart = 150;
   uint8_t gStart = 0;
@@ -234,10 +223,9 @@ void secondCycle(uint8_t nowMinute){
   if(strip.getBrightness() != C2_BRIGHTNESS){
     strip.setBrightness(C2_BRIGHTNESS);   
   }
-  setColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute);
+  setColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute, 2);
 }
 void thirdCycle(uint8_t nowMinute){
-  cycle = 3;
   // yellows and white -> orange to yellow by increasing green; yellow to white by increasing all
   uint8_t rStart = 235;
   uint8_t gStart = 140;
@@ -250,18 +238,16 @@ void thirdCycle(uint8_t nowMinute){
   if(strip.getBrightness() != C3_BRIGHTNESS){
     strip.setBrightness(C3_BRIGHTNESS);   
   }
-  setColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute);
+  setColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute, 3);
 }
 
-void setColor(uint8_t rStart, uint8_t gStart, uint8_t bStart, uint8_t rStop, uint8_t gStop, uint8_t bStop, uint8_t nowMinute){
-  uint32_t color = getColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute);
-  for (int i=0; i < strip.numPixels(); i++) {
-     strip.setPixelColor(i , color);
-  }
+void setColor(uint8_t rStart, uint8_t gStart, uint8_t bStart, uint8_t rStop, uint8_t gStop, uint8_t bStop, uint8_t nowMinute, uint8_t cycleNumber){
+  uint32_t color = getColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute, cycleNumber);
+   strip.fill(color);
    strip.show();
 }
 
-uint32_t getColor(uint8_t rStart, uint8_t gStart, uint8_t bStart, uint8_t rStop, uint8_t gStop, uint8_t bStop, uint8_t nowMinute){
+uint32_t getColor(uint8_t rStart, uint8_t gStart, uint8_t bStart, uint8_t rStop, uint8_t gStop, uint8_t bStop, uint8_t nowMinute, uint8_t cycleNumber){
   uint8_t cycleLength = getCycleLength();
   uint8_t rCurr = rStart + (getElapsedMinuteInCycle(nowMinute) * (rStop-rStart)/cycleLength);
   rCurr = rCurr > 0 ? rCurr : 0;
@@ -269,9 +255,7 @@ uint32_t getColor(uint8_t rStart, uint8_t gStart, uint8_t bStart, uint8_t rStop,
   gCurr = gCurr > 0 ? gCurr : 0;
   uint8_t bCurr = bStart + (getElapsedMinuteInCycle(nowMinute) * (bStop-bStart)/cycleLength);
   bCurr = bCurr > 0 ? bCurr : 0;
-  r = rCurr;
-  g = gCurr;
-  b = bCurr;
+  setDebugValues(rCurr, gCurr, bCurr, cycleNumber, false);
   return strip.Color(rCurr, gCurr, bCurr);
 }
 
@@ -294,7 +278,7 @@ void loop(void) {
   uint8_t nowMinute = now.Minute();
   if (alarmHour != 25 && 
       now.Hour() == alarmHour && 
-      (nowMinute >= alarmMinute && nowMinute < alarmMinute + sunriseLengthInMinutes + 1)){
+      (nowMinute >= alarmMinute && nowMinute < alarmMinute + SUNRISE_LENGTH_IN_MINUTES + 1)){
     beginSunrise(nowMinute);
   }
 }
@@ -332,6 +316,14 @@ void initOTA(){
     }
   });
   ArduinoOTA.begin();
+}
+
+void setDebugValues(uint8_t rVal, uint8_t gVal, uint8_t bVal, uint8_t cycleVal, bool offVal){
+  r = rVal;
+  g = gVal;
+  b = bVal;
+  cycle = cycleVal;
+  off = offVal;  
 }
 
 String buildSetPage(){
@@ -413,27 +405,4 @@ String buildHomePage(){
     </body>\
   </html>";
   return html;
-}
-
-void rainbow(int wait) {
-  // Hue of first pixel runs 5 complete loops through the color wheel.
-  // Color wheel has a range of 65536 but it's OK if we roll over, so
-  // just count from 0 to 5*65536. Adding 256 to firstPixelHue each time
-  // means we'll make 5*65536/256 = 1280 passes through this outer loop:
-  for(long firstPixelHue = 0; firstPixelHue < 5*65536; firstPixelHue += 256) {
-    for(int i=0; i<strip.numPixels(); i++) { // For each pixel in strip...
-      // Offset pixel hue by adn amount to make one full revolution of the
-      // color wheel (range of 65536) along the length of the strip
-      // (strip.numPixels() steps):
-      int pixelHue = firstPixelHue + (i * 65536L / strip.numPixels());
-      // strip.ColorHSV() can take 1 or 3 arguments: a hue (0 to 65535) or
-      // optionally add saturation and value (brightness) (each 0 to 255).
-      // Here we're using just the single-argument hue variant. The result
-      // is passed through strip.gamma32() to provide 'truer' colors
-      // before assigning to each pixel:
-      strip.setPixelColor(i, strip.gamma32(strip.ColorHSV(pixelHue)));
-    }
-    strip.show(); // Update strip with new contents
-    delay(wait);  // Pause for a moment
-  }
 }
