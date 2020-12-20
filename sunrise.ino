@@ -17,6 +17,9 @@
 
 const char* ssid = STASSID;
 const char* password = STAPSK;
+const uint8_t C1_BRIGHTNESS = 30;
+const uint8_t C2_BRIGHTNESS = 50;
+const uint8_t C3_BRIGHTNESS = 70;
 
 RtcDS3231<TwoWire> Rtc(Wire);
 ESP8266WebServer server(80);
@@ -25,9 +28,6 @@ ESP8266WebServer server(80);
 uint8_t alarmHour = 25;
 uint8_t alarmMinute;
 uint8_t sunriseLengthInMinutes = 15;
-uint8_t cycle1Brightness = 30;
-uint8_t cycle2Brightness = 50;
-uint8_t cycle3Brightness = 70;
 
 uint8_t r;
 uint8_t g;
@@ -55,7 +55,8 @@ void handleNotFound() {
 
 void initStrip(){
   strip.begin();  
-  strip.setBrightness(cycle1Brightness); 
+  strip.setBrightness(C1_BRIGHTNESS);
+  strip.clear();
   strip.show();   
 }
 
@@ -167,9 +168,10 @@ void beginSunrise(uint8_t nowMinute){
     r = 0;
     g = 0;
     b = 0;
-    for (int i=0; i < strip.numPixels(); i++) {
-      strip.setPixelColor(i , strip.Color(r, g, b));
-    }
+//    for (int i=0; i < strip.numPixels(); i++) {
+//      strip.setPixelColor(i , strip.Color(r, g, b));
+//    }
+    strip.clear();
     strip.show();
   }
 }
@@ -197,60 +199,56 @@ uint8_t getCycleLength(){
 }
 
 uint8_t getElapsedMinuteInCycle(uint8_t nowMinute){
-  //hacky method
-  uint8_t elapsedTime = nowMinute-alarmMinute+1;
-  uint8_t cycleLength = getCycleLength();
-  while (elapsedTime > cycleLength){
-    elapsedTime -= cycleLength;
-  }
-  return elapsedTime;
+  // Example: Alarm at 1:06; Current Time: 1:18
+  // 18-6-(5*(3-1))-1 = 12-10-1 = 1
+  return nowMinute - alarmMinute - (getCycleLength()*(cycle-1))-1;
 }
 
 void firstCycle(uint8_t nowMinute){
   cycle = 1;
   // deep blues and purples -> blue to purple by increasing red
-  uint8_t rStart = 55;
-  uint8_t gStart = 63;
-  uint8_t bStart = 135;
+  uint8_t rStart = 50;
+  uint8_t gStart = 50;
+  uint8_t bStart = 205;
   
-  uint8_t rStop = 120;
-  uint8_t gStop = 63;
-  uint8_t bStop = 135;
+  uint8_t rStop = 139;
+  uint8_t gStop = 0;
+  uint8_t bStop = 139;
 
-  if(strip.getBrightness() != cycle1Brightness){
-    strip.setBrightness(cycle1Brightness);   
+  if(strip.getBrightness() != C1_BRIGHTNESS){
+    strip.setBrightness(C1_BRIGHTNESS);   
   }
   setColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute);
 }
 void secondCycle(uint8_t nowMinute){
   cycle = 2;
   // reds and oranges -> purple to red by decreasing blue; red to orange by increasing red and green
-  uint8_t rStart = 120;
-  uint8_t gStart = 63;
-  uint8_t bStart = 100;
+  uint8_t rStart = 150;
+  uint8_t gStart = 0;
+  uint8_t bStart = 75;
   
-  uint8_t rStop = 244;
-  uint8_t gStop = 77;
-  uint8_t bStop = 31;
+  uint8_t rStop = 245;
+  uint8_t gStop = 125;
+  uint8_t bStop = 0;
 
-  if(strip.getBrightness() != cycle2Brightness){
-    strip.setBrightness(cycle2Brightness);   
+  if(strip.getBrightness() != C2_BRIGHTNESS){
+    strip.setBrightness(C2_BRIGHTNESS);   
   }
   setColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute);
 }
 void thirdCycle(uint8_t nowMinute){
   cycle = 3;
   // yellows and white -> orange to yellow by increasing green; yellow to white by increasing all
-  uint8_t rStart = 229;
-  uint8_t gStart = 150;
-  uint8_t bStart = 31;
+  uint8_t rStart = 235;
+  uint8_t gStart = 140;
+  uint8_t bStart = 00;
   
   uint8_t rStop = 255;
   uint8_t gStop = 255;
-  uint8_t bStop = 0;
+  uint8_t bStop = 125;
 
-  if(strip.getBrightness() != cycle3Brightness){
-    strip.setBrightness(cycle3Brightness);   
+  if(strip.getBrightness() != C3_BRIGHTNESS){
+    strip.setBrightness(C3_BRIGHTNESS);   
   }
   setColor(rStart, gStart, bStart, rStop, gStop, bStop, nowMinute);
 }
@@ -379,6 +377,8 @@ String buildTimePage(){
     }
     html += "</h1> <h3> Cycle ";
     html += cycle;
+    html += "-";
+    html += getElapsedMinuteInCycle(Rtc.GetDateTime().Minute());
     html+= ": (";
     html += r;
     html += ",";
